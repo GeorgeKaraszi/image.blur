@@ -3,20 +3,22 @@ defmodule Blur.Supervisor do
 
     use Supervisor
 
-    @registered_name __MODULE__
-    @max_workers 9
+    alias Blur.Worker
 
-    def start_link() do
+    @registered_name __MODULE__
+    @max_workers 10
+
+    def start_link do
         Supervisor.start_link(@registered_name, :no_args, [name: @registered_name])
     end
 
     def init(:no_args) do
-        children = [worker(Blur.Process, [], restart: :transient)]
+        children = [worker(Worker, [], restart: :transient)]
         supervise(children, strategy: :simple_one_for_one)
     end
 
     def start_bluring(matrix) do
-        split_matrix = split_by(matrix, @max_workers)
+        split_matrix = BlurProcess.split_by(matrix, @max_workers)
         split_matrix
         |> Enum.count()
         |> start_children()
@@ -29,10 +31,10 @@ defmodule Blur.Supervisor do
 
     def stich_results([], _, _), do: []
     def stich_results([pid | pids], index, size) do
-        Blur.Process.fetch(pid, index, size) ++ stich_results(pids, index+1, size)
+        Worker.fetch(pid, index, size) ++ stich_results(pids, index + 1, size)
     end
 
-    def stop_workers() do
+    def stop_workers do
         @registered_name
         |> Supervisor.which_children()
         |> Enum.each(fn child ->
@@ -43,19 +45,9 @@ defmodule Blur.Supervisor do
         end)
     end
 
-    def split_by(matrix, workers) do
-        row_count = Enum.count(matrix)
-        if row_count < workers+1 do
-            [matrix]
-        else
-            split_amount = round(row_count/workers)
-            Enum.chunk_every(matrix, split_amount+1, split_amount-1)
-        end
-    end
-
     defp assign_tasks([], []), do: []
     defp assign_tasks([blur_pid | blur_tail], [matrix | matrix_tail]) do
-        Blur.Process.process(blur_pid, matrix)
+        Worker.process(blur_pid, matrix)
         [blur_pid | assign_tasks(blur_tail, matrix_tail)]
     end
 
